@@ -107,6 +107,8 @@ import { getClientConfig } from "../config/client";
 import { useAllModels } from "../utils/hooks";
 import { MultimodalContent } from "../client/api";
 
+const maxImagesNumber = 3;
+
 const Markdown = dynamic(async () => (await import("./markdown")).Markdown, {
   loading: () => <LoadingIcon />,
 });
@@ -1312,8 +1314,8 @@ function _Chat() {
             );
             const imagesLength = images.length;
 
-            if (imagesLength > 3) {
-              images.splice(3, imagesLength - 3);
+            if (imagesLength > maxImagesNumber) {
+              images.splice(maxImagesNumber, imagesLength - maxImagesNumber);
             }
             setAttachImages(images);
           }
@@ -1344,7 +1346,7 @@ function _Chat() {
               .then((dataUrl) => {
                 imagesData.push(dataUrl);
                 if (
-                  imagesData.length === 3 ||
+                  imagesData.length === maxImagesNumber ||
                   imagesData.length === files.length
                 ) {
                   setUploading(false);
@@ -1362,8 +1364,8 @@ function _Chat() {
     );
 
     const imagesLength = images.length;
-    if (imagesLength > 3) {
-      images.splice(3, imagesLength - 3);
+    if (imagesLength > maxImagesNumber) {
+      images.splice(maxImagesNumber, imagesLength - maxImagesNumber);
     }
     setAttachImages(images);
   }
