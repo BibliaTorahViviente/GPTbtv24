@@ -1,4 +1,8 @@
-import { trimTopic, getMessageTextContent } from "../utils";
+import {
+  trimTopic,
+  getMessageTextContent,
+  removeOutdatedEntries,
+} from "../utils";
 
 import Locale, { getLang } from "../locales";
 import { showToast } from "../components/ui-lib";
@@ -26,6 +30,7 @@ import { nanoid } from "nanoid";
 import { createPersistStore } from "../utils/store";
 import { collectModelsWithDefaultModel } from "../utils/model";
 import { useAccessStore } from "./access";
+import { useSyncStore } from "./sync";
 import { isDalle3 } from "../utils";
 
 export type ChatMessage = RequestMessage & {
@@ -62,6 +67,7 @@ export interface ChatSession {
   lastUpdate: number;
   lastSummarizeIndex: number;
   clearContextIndex?: number;
+  deletedMessageIds?: Record<string, number>;
 
   mask: Mask;
 }
@@ -85,6 +91,7 @@ function createEmptySession(): ChatSession {
     },
     lastUpdate: Date.now(),
     lastSummarizeIndex: 0,
+    deletedMessageIds: {},
 
     mask: createEmptyMask(),
   };
@@ -162,9 +169,19 @@ function fillTemplateWith(input: string, modelConfig: ModelConfig) {
   return output;
 }
 
+let cloudSyncTimer: any = null;
+function noticeCloudSync(): void {
+  const syncStore = useSyncStore.getState();
+  cloudSyncTimer && clearTimeout(cloudSyncTimer);
+  cloudSyncTimer = setTimeout(() => {
+    syncStore.autoSync();
+  }, 500);
+}
+
 const DEFAULT_CHAT_STATE = {
   sessions: [createEmptySession()],
   currentSessionIndex: 0,
+  deletedSessionIds: {} as Record<string, number>,
 };
 
 export const useChatStore = createPersistStore(
@@ -253,7 +270,18 @@ export const useChatStore = createPersistStore(
         if (!deletedSession) return;
 
         const sessions = get().sessions.slice();
-        sessions.splice(index, 1);
+        const deletedSessionIds = { ...get().deletedSessionIds };
+
+        removeOutdatedEntries(deletedSessionIds);
+
+        const hasDelSessions = sessions.splice(index, 1);
+        if (hasDelSessions?.length) {
+          hasDelSessions.forEach((session) => {
+            if (session.messages.length > 0) {
+              deletedSessionIds[session.id] = Date.now();
+            }
+          });
+        }
 
         const currentIndex = get().currentSessionIndex;
         let nextIndex = Math.min(
@@ -270,12 +298,16 @@ export const useChatStore = createPersistStore(
         const restoreState = {
           currentSessionIndex: get().currentSessionIndex,
           sessions: get().sessions.slice(),
+          deletedSessionIds: get().deletedSessionIds,
         };
 
         set(() => ({
           currentSessionIndex: nextIndex,
           sessions,
+          deletedSessionIds,
         }));
+
+        noticeCloudSync();
 
         showToast(
           Locale.Home.DeleteToast,
@@ -283,6 +315,7 @@ export const useChatStore = createPersistStore(
             text: Locale.Home.Revert,
             onClick() {
               set(() => restoreState);
+              noticeCloudSync();
             },
           },
           5000,
@@ -310,6 +343,7 @@ export const useChatStore = createPersistStore(
         });
         get().updateStat(message);
         get().summarizeSession();
+        noticeCloudSync();
       },
 
       async onUserInput(content: string, attachImages?: string[]) {
